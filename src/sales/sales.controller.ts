@@ -20,7 +20,7 @@ export class SalesController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.salesService.findAll(user);
+  findAll() {
+    return this.salesService.findAll();
   }
 }

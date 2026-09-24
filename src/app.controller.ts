@@ -7,6 +7,6 @@ export class AppController {
 
   @Get()
   getInfo() {
-    return this.appService.getInfo();
+    return this.appService.getStoreInfo();
   }
 }

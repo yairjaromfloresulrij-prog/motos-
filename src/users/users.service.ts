@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import bcrypt from 'bcryptjs';
 import { RegisterDto } from '../auth/dto/register.dto.js';
 import { Role } from '../generated/prisma/enums.js';
@@ -18,7 +19,10 @@ const safeSelect = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async create(dto: RegisterDto) {
     const exists = await this.prisma.user.findUnique({
@@ -26,7 +30,9 @@ export class UsersService {
     });
     if (exists) throw new ConflictException('El email ya está registrado');
 
-    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS ?? '10', 10);
+    const saltRounds = Number(
+      this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10),
+    );
     const password = await bcrypt.hash(dto.password, saltRounds);
 
     return this.prisma.user.create({

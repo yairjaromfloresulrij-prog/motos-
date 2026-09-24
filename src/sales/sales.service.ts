@@ -1,77 +1,88 @@
 import {
-  BadRequestException,
   Injectable,
+  BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import type { JwtPayload } from '../auth/strategies/jwt.strategy.js';
-import { Role } from '../generated/prisma/enums.js';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateSaleDto } from './dto/create-sale.dto.js';
 
 @Injectable()
 export class SalesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
-  async create(dto: CreateSaleDto) {
-    const discountPercent = dto.discountPercent ?? 0;
-    const maxDiscount = parseInt(process.env.MAX_DISCOUNT_PERCENT ?? '0', 10);
+  async create(createSaleDto: CreateSaleDto) {
+    const maxDiscount = Number(
+      this.configService.get<number>('MAX_DISCOUNT_PERCENT', 0),
+    );
+    const discountPercent = createSaleDto.discountPercent || 0;
+
     if (discountPercent > maxDiscount) {
       throw new BadRequestException(
-        `El descuento máximo permitido es ${maxDiscount}%`,
+        `El descuento no puede superar el ${maxDiscount}%`,
       );
-    }
-
-    const customer = await this.prisma.user.findUnique({
-      where: { id: dto.customerId },
-    });
-    if (!customer) {
-      throw new NotFoundException(`Cliente ${dto.customerId} no encontrado`);
     }
 
     const motorcycle = await this.prisma.motorcycle.findUnique({
-      where: { id: dto.motorcycleId },
+      where: { id: createSaleDto.motorcycleId },
     });
+
     if (!motorcycle) {
-      throw new NotFoundException(`Moto ${dto.motorcycleId} no encontrada`);
+      throw new NotFoundException('Moto no encontrada');
     }
+
     if (motorcycle.stock <= 0) {
-      throw new BadRequestException(
-        `La moto ${motorcycle.model} no tiene stock`,
-      );
+      throw new BadRequestException('No hay stock disponible de esta moto');
     }
 
     const listPrice = Number(motorcycle.price);
-    const finalPrice =
-      Math.round(listPrice * (1 - discountPercent / 100) * 100) / 100;
+    const discountAmount = (listPrice * discountPercent) / 100;
+    const finalPrice = listPrice - discountAmount;
 
-    const [sale] = await this.prisma.$transaction([
-      this.prisma.sale.create({
+    return this.prisma.$transaction(async (tx) => {
+      await tx.motorcycle.update({
+        where: { id: motorcycle.id },
+        data: { stock: motorcycle.stock - 1 },
+      });
+
+      return tx.sale.create({
         data: {
-          customerId: dto.customerId,
-          motorcycleId: dto.motorcycleId,
-          listPrice,
+          customerId: createSaleDto.customerId,
+          motorcycleId: createSaleDto.motorcycleId,
           discountPercent,
+          listPrice,
           finalPrice,
         },
-        include: { motorcycle: { include: { brand: true } } },
-      }),
-      this.prisma.motorcycle.update({
-        where: { id: dto.motorcycleId },
-        data: { stock: { decrement: 1 } },
-      }),
-    ]);
-
-    return { ...sale, currency: process.env.CURRENCY };
+        include: {
+          customer: { select: { id: true, name: true, email: true } },
+          motorcycle: true,
+        },
+      });
+    });
   }
 
-  findAll(user: JwtPayload) {
+  async findAll(user?: { id: number; role: string }) {
+    if (user?.role === 'CUSTOMER') {
+      return this.findByCustomer(user.id);
+    }
+
     return this.prisma.sale.findMany({
-      where: user.role === Role.CUSTOMER ? { customerId: user.sub } : undefined,
       include: {
-        motorcycle: { include: { brand: true } },
-        customer: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, email: true } },
+        motorcycle: true,
       },
-      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findByCustomer(customerId: number) {
+    return this.prisma.sale.findMany({
+      where: { customerId },
+      include: {
+        motorcycle: true,
+      },
     });
   }
 }
