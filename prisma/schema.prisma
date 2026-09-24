@@ -1,0 +1,82 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MECHANIC
+  CUSTOMER
+}
+
+enum MaintenanceStatus {
+  RECEIVED
+  IN_PROGRESS
+  DONE
+  DELIVERED
+}
+
+model User {
+  id                Int                @id @default(autoincrement())
+  name              String
+  email             String             @unique
+  password          String
+  role              Role               @default(CUSTOMER)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  purchases         Sale[]
+  maintenanceOrders MaintenanceOrder[] @relation("CustomerOrders")
+  assignedOrders    MaintenanceOrder[] @relation("MechanicOrders")
+}
+
+model Brand {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  country     String?
+  motorcycles Motorcycle[]
+}
+
+model Motorcycle {
+  id        Int      @id @default(autoincrement())
+  model     String
+  year      Int
+  engineCc  Int
+  price     Decimal  @db.Decimal(10, 2)
+  stock     Int      @default(0)
+  brandId   Int
+  brand     Brand    @relation(fields: [brandId], references: [id])
+  sales     Sale[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Sale {
+  id              Int        @id @default(autoincrement())
+  listPrice       Decimal    @db.Decimal(10, 2)
+  discountPercent Int        @default(0)
+  finalPrice      Decimal    @db.Decimal(10, 2)
+  customerId      Int
+  customer        User       @relation(fields: [customerId], references: [id])
+  motorcycleId    Int
+  motorcycle      Motorcycle @relation(fields: [motorcycleId], references: [id])
+  createdAt       DateTime   @default(now())
+}
+
+model MaintenanceOrder {
+  id          Int               @id @default(autoincrement())
+  plate       String
+  description String
+  status      MaintenanceStatus @default(RECEIVED)
+  cost        Decimal?          @db.Decimal(10, 2)
+  customerId  Int
+  customer    User              @relation("CustomerOrders", fields: [customerId], references: [id])
+  mechanicId  Int?
+  mechanic    User?             @relation("MechanicOrders", fields: [mechanicId], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
